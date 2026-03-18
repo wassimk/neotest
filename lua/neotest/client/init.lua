@@ -312,9 +312,36 @@ end
 
 ---@private
 function neotest.Client:_parse_files(adapter_id, root, paths)
+  local total = #paths
+  local done = 0
+  local adapter_name = vim.split(adapter_id, ":", { trimempty = true })[1]
+  local has_progress = vim.version().minor >= 12
+  local progress = has_progress and { kind = "progress", title = "neotest" } or nil
+
+  local function report(status)
+    if not progress or total <= 1 then
+      return
+    end
+    local current_done = done
+    vim.schedule(function()
+      progress.status = status
+      progress.percent = status == "success" and nil or math.floor(current_done / total * 100)
+      progress.id = vim.api.nvim_echo(
+        { { ("discovering %s tests from files"):format(adapter_name) } },
+        false,
+        progress
+      )
+      if #vim.api.nvim_list_uis() > 0 then
+        vim.cmd.redraw()
+      end
+    end)
+  end
+
   local function worker()
     while #paths > 0 do
       self:_update_positions(table.remove(paths), { adapter = adapter_id })
+      done = done + 1
+      report("running")
     end
   end
 
@@ -323,7 +350,9 @@ function neotest.Client:_parse_files(adapter_id, root, paths)
     table.insert(workers, worker)
   end
   logger.info("Discovering files with", #workers, "workers")
+  report("running")
   nio.gather(workers)
+  report("success")
 end
 
 ---@async
